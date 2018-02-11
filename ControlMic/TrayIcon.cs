@@ -282,6 +282,12 @@ namespace ControlMic
             trayMenu.Dispose();
             notifyIcon = null;
             trayMenu = null;
+            currentSubscription.Dispose();
+            microphone.Dispose();
+            coreAudioController.Dispose();
+            manager.Dispose();
+            mutedIcon.Dispose();
+            unmutedIcon.Dispose();
 
             GC.Collect();
             GC.SuppressFinalize(this);
