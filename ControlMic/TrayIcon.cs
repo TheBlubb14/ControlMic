@@ -25,9 +25,13 @@ namespace ControlMic
         private Icon unmutedIcon;
 
         private HotKey currentHotkey;
-        private HotKeyManager manager = new HotKeyManager();
+        private HotKeyManager manager;
+
+        private MenuItem beepNotification;
 
         private bool beepEnabled;
+        BeepConfig onBeep;
+        BeepConfig offBeep;
 
         IDisposable currentSubscription;
 
@@ -43,11 +47,28 @@ namespace ControlMic
                     if (r.BaseStream.Length >= 40)
                     {
                         Guid g = new Guid(r.ReadString());
-                        var mic = coreAudioController.GetCaptureDevices().FirstOrDefault(x => x.Id == g);
+                        var mic = coreAudioController.GetCaptureDevices().Where(x=>x.State == DeviceState.Active).FirstOrDefault(x => x.Id == g);
+
                         if (mic != null)
                             microphone = mic;
+
                         beepEnabled = r.ReadBoolean();
                         Register((ModifierKeys)r.ReadInt32(), (Key)r.ReadInt32(), true);
+
+                        if(r.BaseStream.Position != r.BaseStream.Length)
+                        {
+                            onBeep.Freq = r.ReadInt32();
+                            onBeep.Duration = r.ReadInt32();
+                            offBeep.Freq = r.ReadInt32();
+                            offBeep.Duration = r.ReadInt32();
+                        }
+                        else
+                        {
+                            onBeep.Freq = 750;
+                            onBeep.Duration = 200;
+                            offBeep.Freq = 300;
+                            offBeep.Duration = 200;
+                        }
                     }
                 }
             }
@@ -55,16 +76,20 @@ namespace ControlMic
             {
                 microphone = coreAudioController.GetDefaultDevice(DeviceType.Capture, Role.Communications);
                 beepEnabled = false;
+                onBeep.Freq = 750;
+                onBeep.Duration = 200;
+                offBeep.Freq = 300;
+                offBeep.Duration = 200;
+
                 Register(ModifierKeys.None, Key.None);
             }
 
             trayMenu = new ContextMenu();
             trayMenu.MenuItems.Add(0, new MenuItem("Toogle Mute", ToggleMute));
             trayMenu.MenuItems.Add(1, new MenuItem());
-             trayMenu.MenuItems.Add(2, new MenuItem("Setup Shortcut", SetupShortcut));
-            trayMenu.MenuItems.Add(3, new MenuItem("Notifications", Notifications));
+            trayMenu.MenuItems.Add(2, new MenuItem("Setup Shortcut", SetupShortcut));
+            trayMenu.MenuItems.Add(3, new MenuItem("Notifications", NotificationMenuItems()));
             trayMenu.MenuItems.Add(4, new MenuItem("About", AboutDialog));
-
             trayMenu.MenuItems.Add(5, new MenuItem("Exit", Exit));
 
             Bitmap b = (Bitmap)Bitmap.FromFile(@"mic.png");
@@ -96,12 +121,28 @@ namespace ControlMic
             };
 
             ChangeMicrophone(microphone);
-
         }
 
         private void AboutDialog(object sender, EventArgs e)
+        => MessageBox.Show("Created by susch19 \r\nhttps://github.com/susch19/ControlMic \r\n\r\nIcon by Yannick Lung  \r\nhttps://www.iconfinder.com/icons/183597/microphone_record_icon", "About");
+
+        private MenuItem[] NotificationMenuItems()
         {
-            MessageBox.Show("Created by susch19 \r\nhttps://github.com/susch19/ControlMic \r\n\r\nIcon by Yannick Lung  \r\nhttps://www.iconfinder.com/icons/183597/microphone_record_icon", "About");
+            var menuItems = new MenuItem[2];
+            beepNotification = new MenuItem(beepEnabled ? "Beep ✓" : "Beep", (s,e) => 
+                {
+                    beepEnabled = !beepEnabled;
+                    beepNotification.Text = beepEnabled ? "Beep ✓" : "Beep";
+                });
+            menuItems[0] = beepNotification;
+            menuItems[1] = new MenuItem("Configure beeps", ConfigureBeeps);
+
+            return menuItems;
+        }
+
+        private void ConfigureBeeps(object sender, EventArgs e)
+        {
+            MessageBox.Show("Not supperted at the moment");
         }
 
         private void RefreshDevices()
@@ -109,13 +150,15 @@ namespace ControlMic
             trayMenu.MenuItems.RemoveAt(1);
 
             trayMenu.MenuItems.Add(1, new MenuItem("Devices",
-                coreAudioController.GetCaptureDevices().Select(
+                coreAudioController
+                    .GetCaptureDevices()
+                    .Where(x => x.State == DeviceState.Active)
+                    .Select(
                     x => new MenuItem((x == microphone ? "✓ " : "  ") + x.InterfaceName,
                         (o, s) =>
                         {
                             ChangeMicrophone(x);
                         })).ToArray()));
-
         }
 
         private void ChangeMicrophone(CoreAudioDevice x)
@@ -134,14 +177,14 @@ namespace ControlMic
             {
                 notifyIcon.Icon = mutedIcon;
                 if (beepEnabled)
-                    ThreadedBeep(350, 200);
+                    ThreadedBeep(offBeep.Freq, offBeep.Duration);
                 notifyIcon.Text = "MuteMic - Muted";
             }
             else
             {
                 notifyIcon.Icon = unmutedIcon;
                 if (beepEnabled)
-                    ThreadedBeep(700, 200);
+                    ThreadedBeep(onBeep.Freq, onBeep.Duration);
                 notifyIcon.Text = "MuteMic - Unmuted";
             }
         }
@@ -200,8 +243,8 @@ namespace ControlMic
 
             var size = new Size(220, 90);
             form.Size = size;
-            form.MaximumSize = size;
             form.MinimumSize = size;
+            form.MaximumSize= new Size(440, 180);
 
             form.MinimizeBox = false;
             form.MaximizeBox = false;
@@ -213,15 +256,20 @@ namespace ControlMic
                 var hotkeyText = hotkeyControl.Text.Replace(" ", "").Replace("Ctrl", "Control").Split('+');
                 ModifierKeys modifiers = ModifierKeys.None;
                 Key key = Key.None;
+
                 foreach (var item in hotkeyText)
                 {
                     if (Enum.TryParse(item, out ModifierKeys modifier))
                         modifiers |= modifier;
 
                     if (item != hotkeyText.Last())
+                    {
                         continue;
+                    }
                     else if (Enum.TryParse(item, out Key parseKey))
+                    {
                         key = parseKey;
+                    }
                     else
                     {
                         MessageBox.Show("Key " + hotkeyText.LastOrDefault() + " is not supported");
@@ -237,25 +285,20 @@ namespace ControlMic
 
         private void Register(ModifierKeys modKeys, Key key, bool loading = false)
         {
-
             if (currentHotkey != null)
                 manager.Unregister(currentHotkey);
+
             currentHotkey = new HotKey(key, modKeys);
             manager.Register(currentHotkey);
             manager.KeyPressed += Manager_KeyPressed;
+
             if (!loading)
                 Save();
         }
 
-        private void Manager_KeyPressed(object sender, KeyPressedEventArgs e)
-        {
-            ToggleMute();
-        }
+        private void Manager_KeyPressed(object sender, KeyPressedEventArgs e) => ToggleMute();
 
-        internal void ToggleMute(object sender = null, EventArgs e = null)
-        {
-            microphone.ToggleMute();
-        }
+        internal void ToggleMute(object sender = null, EventArgs e = null) => microphone.ToggleMute();
 
         private void Save()
         {
@@ -265,6 +308,10 @@ namespace ControlMic
                 w.Write(beepEnabled);
                 w.Write((int)currentHotkey.Modifiers);
                 w.Write((int)currentHotkey.Key);
+                w.Write(onBeep.Freq);
+                w.Write(onBeep.Duration);
+                w.Write(offBeep.Freq);
+                w.Write(offBeep.Duration);
             }
         }
 
@@ -296,5 +343,11 @@ namespace ControlMic
 
         [DllImport("kernel32.dll")]
         public static extern bool Beep(int freq, int duration);
+    }
+
+    struct BeepConfig
+    {
+        public int Freq { get; set; }
+        public int Duration { get; set; }
     }
 }
