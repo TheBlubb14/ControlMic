@@ -177,8 +177,8 @@ namespace ControlMic
                 else
                 {
                     notificationBallForm.Enabled = !notificationBallForm.Enabled;
+                    notificationBallForm.SetVisibility(notificationBallForm.Enabled);
                     menuItems[2].Text = notificationBallForm.Enabled ? "Notification Ball ✓" : "Notification Ball";
-                    notificationBallForm.Visible = notificationBallForm.Enabled;
                     Save();
 
                 }
@@ -236,7 +236,7 @@ namespace ControlMic
                 notifyIcon.Text = "MuteMic - Unmuted";
             }
             Task t = new Task(() => {
-                if (notificationBallForm != null)
+                if (notificationBallForm.Enabled)
                     notificationBallForm.SetVisibility(!mic.IsMuted);
             });
             t.Start();
