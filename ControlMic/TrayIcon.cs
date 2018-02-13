@@ -33,6 +33,8 @@ namespace ControlMic
         BeepConfig onBeep;
         BeepConfig offBeep;
 
+        private NotificationBallForm notificationBallForm;
+
         IDisposable currentSubscription;
 
         public TrayApplication()
@@ -47,7 +49,7 @@ namespace ControlMic
                     if (r.BaseStream.Length >= 40)
                     {
                         Guid g = new Guid(r.ReadString());
-                        var mic = coreAudioController.GetCaptureDevices().Where(x=>x.State == DeviceState.Active).FirstOrDefault(x => x.Id == g);
+                        var mic = coreAudioController.GetCaptureDevices().Where(x => x.State == DeviceState.Active).FirstOrDefault(x => x.Id == g);
 
                         if (mic != null)
                             microphone = mic;
@@ -55,7 +57,7 @@ namespace ControlMic
                         beepEnabled = r.ReadBoolean();
                         Register((ModifierKeys)r.ReadInt32(), (Key)r.ReadInt32(), true);
 
-                        if(r.BaseStream.Position != r.BaseStream.Length)
+                        if (r.BaseStream.Position != r.BaseStream.Length)
                         {
                             onBeep.Freq = r.ReadInt32();
                             onBeep.Duration = r.ReadInt32();
@@ -69,6 +71,24 @@ namespace ControlMic
                             offBeep.Freq = 300;
                             offBeep.Duration = 200;
                         }
+
+                        if (r.BaseStream.Position != r.BaseStream.Length)
+                        {
+                            notificationBallForm = new NotificationBallForm();
+                            notificationBallForm.Enabled = r.ReadBoolean();
+                            notificationBallForm.DraggingEnd += (asd, esd) => Save();
+                            notificationBallForm.Show();
+                            notificationBallForm.Visible = notificationBallForm.Enabled;
+                            notificationBallForm.Location = new Point(r.ReadInt32(), r.ReadInt32());
+
+                        }
+                        else
+                        {
+                            notificationBallForm = new NotificationBallForm();
+                            notificationBallForm.Enabled = false;
+                            notificationBallForm.Show();
+                            notificationBallForm.Visible = false;
+                        }
                     }
                 }
             }
@@ -80,6 +100,11 @@ namespace ControlMic
                 onBeep.Duration = 200;
                 offBeep.Freq = 300;
                 offBeep.Duration = 200;
+
+                notificationBallForm = new NotificationBallForm();
+                notificationBallForm.Enabled = false;
+                notificationBallForm.Show();
+                notificationBallForm.Visible = false;
 
                 Register(ModifierKeys.None, Key.None);
             }
@@ -120,6 +145,9 @@ namespace ControlMic
                 Visible = true
             };
 
+            if (notificationBallForm.Enabled)
+                notificationBallForm.Visible = !microphone.IsMuted;
+
             ChangeMicrophone(microphone);
         }
 
@@ -128,17 +156,37 @@ namespace ControlMic
 
         private MenuItem[] NotificationMenuItems()
         {
-            var menuItems = new MenuItem[2];
-            beepNotification = new MenuItem(beepEnabled ? "Beep ✓" : "Beep", (s,e) => 
+            var menuItems = new MenuItem[3];
+            beepNotification = new MenuItem(beepEnabled ? "Beep ✓" : "Beep", (s, e) =>
                 {
                     beepEnabled = !beepEnabled;
                     beepNotification.Text = beepEnabled ? "Beep ✓" : "Beep";
                 });
             menuItems[0] = beepNotification;
             menuItems[1] = new MenuItem("Configure beeps", ConfigureBeeps);
+            menuItems[2] = new MenuItem(notificationBallForm.Enabled ? "Notification Ball ✓" : "Notification Ball", (s, e) =>
+            {
+                if (notificationBallForm == null)
+                {
+                    notificationBallForm = new NotificationBallForm();
+                    notificationBallForm.Show();
+                    menuItems[2].Text = "Notification Ball ✓";
+                    notificationBallForm.DraggingEnd += (asd, esd) => Save();
+                    Save();
+                }
+                else
+                {
+                    notificationBallForm.Enabled = !notificationBallForm.Enabled;
+                    menuItems[2].Text = notificationBallForm.Enabled ? "Notification Ball ✓" : "Notification Ball";
+                    notificationBallForm.Visible = notificationBallForm.Enabled;
+                    Save();
+
+                }
+            });
 
             return menuItems;
         }
+
 
         private void ConfigureBeeps(object sender, EventArgs e)
         {
@@ -187,6 +235,12 @@ namespace ControlMic
                     ThreadedBeep(onBeep.Freq, onBeep.Duration);
                 notifyIcon.Text = "MuteMic - Unmuted";
             }
+            Task t = new Task(() => {
+                if (notificationBallForm != null)
+                    notificationBallForm.SetVisibility(!mic.IsMuted);
+            });
+            t.Start();
+            
         }
 
         private void ThreadedBeep(int freq, int duration)
@@ -244,7 +298,7 @@ namespace ControlMic
             var size = new Size(220, 90);
             form.Size = size;
             form.MinimumSize = size;
-            form.MaximumSize= new Size(440, 180);
+            form.MaximumSize = new Size(440, 180);
 
             form.MinimizeBox = false;
             form.MaximizeBox = false;
@@ -312,6 +366,9 @@ namespace ControlMic
                 w.Write(onBeep.Duration);
                 w.Write(offBeep.Freq);
                 w.Write(offBeep.Duration);
+                w.Write(notificationBallForm.Enabled);
+                w.Write(notificationBallForm.Location.X);
+                w.Write(notificationBallForm.Location.Y);
             }
         }
 
@@ -343,6 +400,7 @@ namespace ControlMic
 
         [DllImport("kernel32.dll")]
         public static extern bool Beep(int freq, int duration);
+
     }
 
     struct BeepConfig
