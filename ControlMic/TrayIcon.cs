@@ -10,6 +10,7 @@ using GlobalHotKey;
 using System.Windows.Input;
 using AudioSwitcher.AudioApi.Observables;
 using System.IO;
+using System.IO.Pipes;
 
 namespace ControlMic
 {
@@ -33,6 +34,8 @@ namespace ControlMic
         BeepConfig onBeep;
         BeepConfig offBeep;
 
+        Task pipeTask;
+
         private NotificationBallForm notificationBallForm;
 
         IDisposable currentSubscription;
@@ -41,6 +44,9 @@ namespace ControlMic
         {
             coreAudioController = new CoreAudioController();
             manager = new HotKeyManager();
+
+            var g933 = coreAudioController.GetCaptureDevices().FirstOrDefault(x => x.FullName.Contains("933"));
+            //ObservableExtensions.Subscribe(g933.MuteChanged, (asd) => microphone.Mute(asd.IsMuted));
 
             if (File.Exists("save.mm"))
             {
@@ -53,6 +59,8 @@ namespace ControlMic
 
                         if (mic != null)
                             microphone = mic;
+                        else
+                            microphone = coreAudioController.GetCaptureDevices().FirstOrDefault();
 
                         beepEnabled = r.ReadBoolean();
                         Register((ModifierKeys)r.ReadInt32(), (Key)r.ReadInt32(), true);
@@ -149,6 +157,31 @@ namespace ControlMic
                 notificationBallForm.Visible = !microphone.IsMuted;
 
             ChangeMicrophone(microphone);
+            StartPipe();
+
+        }
+
+        public void StartPipe()
+        {
+            pipeTask = new Task(() =>
+            {
+                while (true)
+                {
+                    var server = new NamedPipeServerStream("ControlMicPipe", PipeDirection.In);
+                    server.WaitForConnection();
+                    using (StreamReader reader = new StreamReader(server))
+                    {
+                        while (server.IsConnected)
+                        {
+                            var line = reader.ReadLine();
+                            if (line == "ToggleMic")
+                                ToggleMute();
+                        }
+                    }
+
+                }
+            }, TaskCreationOptions.LongRunning);
+            pipeTask.Start();
         }
 
         private void AboutDialog(object sender, EventArgs e)
@@ -214,10 +247,10 @@ namespace ControlMic
             microphone = x;
             RefreshDevices();
             currentSubscription?.Dispose();
-            currentSubscription = ObservableExtensions.Subscribe(x.MuteChanged, muteChange);
+            currentSubscription = ObservableExtensions.Subscribe(x.MuteChanged, MuteChange);
         }
 
-        private void muteChange(DeviceMuteChangedArgs mic)
+        private void MuteChange(DeviceMuteChangedArgs mic)
         {
             if (mic.Device != microphone)
                 return;
@@ -235,12 +268,13 @@ namespace ControlMic
                     ThreadedBeep(onBeep.Freq, onBeep.Duration);
                 notifyIcon.Text = "MuteMic - Unmuted";
             }
-            Task t = new Task(() => {
+            Task t = new Task(() =>
+            {
                 if (notificationBallForm.Enabled)
                     notificationBallForm.SetVisibility(!mic.IsMuted);
             });
             t.Start();
-            
+
         }
 
         private void ThreadedBeep(int freq, int duration)
@@ -352,7 +386,7 @@ namespace ControlMic
 
         private void Manager_KeyPressed(object sender, KeyPressedEventArgs e) => ToggleMute();
 
-        internal void ToggleMute(object sender = null, EventArgs e = null) => microphone.ToggleMute();
+        internal void ToggleMute(object sender = null, EventArgs e = null) => microphone?.ToggleMute();
 
         private void Save()
         {
