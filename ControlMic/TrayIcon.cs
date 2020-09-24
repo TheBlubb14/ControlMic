@@ -1,66 +1,64 @@
-﻿using AudioSwitcher.AudioApi;
-using AudioSwitcher.AudioApi.CoreAudio;
-using System;
+﻿using System;
 using System.Drawing;
+using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Windows.Controls;
 using System.Windows.Forms;
-using GlobalHotKey;
 using System.Windows.Input;
+
+using AudioSwitcher.AudioApi;
+using AudioSwitcher.AudioApi.CoreAudio;
 using AudioSwitcher.AudioApi.Observables;
-using System.IO;
-using System.IO.Pipes;
+
+using GlobalHotKey;
 
 namespace ControlMic
 {
     public class TrayApplication : NativeWindow, IDisposable
     {
         private NotifyIcon notifyIcon;
-        private ContextMenu trayMenu;
+        private ContextMenuStrip trayMenu;
 
         private CoreAudioDevice microphone;
-        private CoreAudioController coreAudioController;
+        private readonly CoreAudioController coreAudioController;
 
-        private Icon mutedIcon;
-        private Icon unmutedIcon;
+        private readonly Icon mutedIcon;
+        private readonly Icon unmutedIcon;
 
-        private HotKey currentHotkey;
-        private HotKeyManager manager;
+        //private HotKey currentHotkey;
+        //private readonly HotKeyManager manager;
 
-        private MenuItem beepNotification;
+        private ToolStripMenuItem beepNotification;
 
         private bool beepEnabled;
-        BeepConfig onBeep;
-        BeepConfig offBeep;
-
-        Task pipeTask;
+        private BeepConfig onBeep;
+        private BeepConfig offBeep;
+        private Task pipeTask;
 
         private NotificationBallForm notificationBallForm;
-
-        IDisposable currentSubscription;
+        private IDisposable currentSubscription;
 
         public TrayApplication()
         {
             coreAudioController = new CoreAudioController();
-            manager = new HotKeyManager();
-
-            var g933 = coreAudioController.GetCaptureDevices().FirstOrDefault(x => x.FullName.Contains("933"));
-            //ObservableExtensions.Subscribe(g933.MuteChanged, (asd) => microphone.Mute(asd.IsMuted));
+            //manager = new HotKeyManager();
 
             if (File.Exists("save.mm"))
             {
-                using (BinaryReader r = new BinaryReader(File.OpenRead("save.mm")))
+                using (var r = new BinaryReader(File.OpenRead("save.mm")))
                 {
                     if (r.BaseStream.Length >= 40)
                     {
-                        Guid g = new Guid(r.ReadString());
-                        var mic = coreAudioController.GetCaptureDevices().Where(x => x.State == DeviceState.Active).FirstOrDefault(x => x.Id == g);
+                        var g = new Guid(r.ReadString());
+                        CoreAudioDevice mic = coreAudioController.GetDevice(g);
 
-                        if (mic != null)
+                        if (mic != null && mic.State == DeviceState.Active)
                             microphone = mic;
                         else
-                            microphone = coreAudioController.GetCaptureDevices().FirstOrDefault();
+                            microphone = coreAudioController.GetDefaultDevice(DeviceType.Capture, Role.Communications);
 
                         beepEnabled = r.ReadBoolean();
                         Register((ModifierKeys)r.ReadInt32(), (Key)r.ReadInt32(), true);
@@ -82,8 +80,10 @@ namespace ControlMic
 
                         if (r.BaseStream.Position != r.BaseStream.Length)
                         {
-                            notificationBallForm = new NotificationBallForm();
-                            notificationBallForm.Enabled = r.ReadBoolean();
+                            notificationBallForm = new NotificationBallForm
+                            {
+                                Enabled = r.ReadBoolean()
+                            };
                             notificationBallForm.DraggingEnd += (asd, esd) => Save();
                             notificationBallForm.Show();
                             notificationBallForm.Visible = notificationBallForm.Enabled;
@@ -92,8 +92,10 @@ namespace ControlMic
                         }
                         else
                         {
-                            notificationBallForm = new NotificationBallForm();
-                            notificationBallForm.Enabled = false;
+                            notificationBallForm = new NotificationBallForm
+                            {
+                                Enabled = false
+                            };
                             notificationBallForm.Show();
                             notificationBallForm.Visible = false;
                         }
@@ -109,31 +111,33 @@ namespace ControlMic
                 offBeep.Freq = 300;
                 offBeep.Duration = 200;
 
-                notificationBallForm = new NotificationBallForm();
-                notificationBallForm.Enabled = false;
+                notificationBallForm = new NotificationBallForm
+                {
+                    Enabled = false
+                };
                 notificationBallForm.Show();
                 notificationBallForm.Visible = false;
 
                 Register(ModifierKeys.None, Key.None);
             }
 
-            trayMenu = new ContextMenu();
-            trayMenu.MenuItems.Add(0, new MenuItem("Toogle Mute", ToggleMute));
-            trayMenu.MenuItems.Add(1, new MenuItem());
-            trayMenu.MenuItems.Add(2, new MenuItem("Setup Shortcut", SetupShortcut));
-            trayMenu.MenuItems.Add(3, new MenuItem("Notifications", NotificationMenuItems()));
-            trayMenu.MenuItems.Add(4, new MenuItem("About", AboutDialog));
-            trayMenu.MenuItems.Add(5, new MenuItem("Exit", Exit));
+            trayMenu = new ContextMenuStrip();
+            trayMenu.Items.Add(new ToolStripMenuItem("Toogle Mute", default, ToggleMute));
+            trayMenu.Items.Add(new ToolStripMenuItem());
+            trayMenu.Items.Add(new ToolStripMenuItem("Setup Shortcut", default, SetupShortcut));
+            trayMenu.Items.Add(new ToolStripMenuItem("Notifications", default, NotificationMenuItems()));
+            trayMenu.Items.Add(new ToolStripMenuItem("About", default, AboutDialog));
+            trayMenu.Items.Add(new ToolStripMenuItem("Exit", default, Exit));
 
-            Bitmap b = (Bitmap)Bitmap.FromFile(@"mic.png");
+            var b = (Bitmap)System.Drawing.Image.FromFile(@"mic.png");
             IntPtr pIcon = b.GetHicon();
-            Icon i = Icon.FromHandle(pIcon);
+            var i = Icon.FromHandle(pIcon);
             mutedIcon = i;
 
-            b = (Bitmap)Bitmap.FromFile(@"mic.png");
-            for (int x = 0; x < b.Width; x++)
+            b = (Bitmap)System.Drawing.Image.FromFile(@"mic.png");
+            for (var x = 0; x < b.Width; x++)
             {
-                for (int y = 0; y < b.Height; y++)
+                for (var y = 0; y < b.Height; y++)
                 {
                     if (b.GetPixel(x, y).A != 0)
                         b.SetPixel(x, y, Color.FromArgb(255, 255, 0, 0));
@@ -149,7 +153,7 @@ namespace ControlMic
             {
                 Text = microphone.IsMuted ? "MuteMic - Muted" : "MuteMic - Unmuted",
                 Icon = microphone.IsMuted ? mutedIcon : unmutedIcon,
-                ContextMenu = trayMenu,
+                ContextMenuStrip = trayMenu,
                 Visible = true
             };
 
@@ -167,18 +171,18 @@ namespace ControlMic
             {
                 while (true)
                 {
-                    var server = new NamedPipeServerStream("ControlMicPipe", PipeDirection.In);
-                    server.WaitForConnection();
-                    using (StreamReader reader = new StreamReader(server))
+                    using (var server = new NamedPipeServerStream("ControlMicPipe", PipeDirection.In, 1))
                     {
-                        while (server.IsConnected)
+                        server.WaitForConnection();
+                        using (var reader = new StreamReader(server))
                         {
-                            var line = reader.ReadLine();
-                            if (line == "ToggleMic")
-                                ToggleMute();
+                            while (server.IsConnected)
+                            {
+                                if (reader.ReadLine() == "ToggleMic")
+                                    ToggleMute();
+                            }
                         }
                     }
-
                 }
             }, TaskCreationOptions.LongRunning);
             pipeTask.Start();
@@ -187,17 +191,17 @@ namespace ControlMic
         private void AboutDialog(object sender, EventArgs e)
         => MessageBox.Show("Created by susch19 \r\nhttps://github.com/susch19/ControlMic \r\n\r\nIcon by Yannick Lung  \r\nhttps://www.iconfinder.com/icons/183597/microphone_record_icon", "About");
 
-        private MenuItem[] NotificationMenuItems()
+        private ToolStripMenuItem[] NotificationMenuItems()
         {
-            var menuItems = new MenuItem[3];
-            beepNotification = new MenuItem(beepEnabled ? "Beep ✓" : "Beep", (s, e) =>
-                {
-                    beepEnabled = !beepEnabled;
-                    beepNotification.Text = beepEnabled ? "Beep ✓" : "Beep";
-                });
+            var menuItems = new ToolStripMenuItem[3];
+            beepNotification = new ToolStripMenuItem(beepEnabled ? "Beep ✓" : "Beep", default, (s, e) =>
+                 {
+                     beepEnabled = !beepEnabled;
+                     beepNotification.Text = beepEnabled ? "Beep ✓" : "Beep";
+                 });
             menuItems[0] = beepNotification;
-            menuItems[1] = new MenuItem("Configure beeps", ConfigureBeeps);
-            menuItems[2] = new MenuItem(notificationBallForm.Enabled ? "Notification Ball ✓" : "Notification Ball", (s, e) =>
+            menuItems[1] = new ToolStripMenuItem("Configure beeps", default, ConfigureBeeps);
+            menuItems[2] = new ToolStripMenuItem(notificationBallForm.Enabled ? "Notification Ball ✓" : "Notification Ball", default, (s, e) =>
             {
                 if (notificationBallForm == null)
                 {
@@ -221,21 +225,18 @@ namespace ControlMic
         }
 
 
-        private void ConfigureBeeps(object sender, EventArgs e)
-        {
-            MessageBox.Show("Not supperted at the moment");
-        }
+        private void ConfigureBeeps(object sender, EventArgs e) => MessageBox.Show("Not supperted at the moment");
 
         private void RefreshDevices()
         {
-            trayMenu.MenuItems.RemoveAt(1);
+            trayMenu.Items.RemoveAt(1);
 
-            trayMenu.MenuItems.Add(1, new MenuItem("Devices",
+            trayMenu.Items.Insert(1, new ToolStripMenuItem("Devices", default,
                 coreAudioController
                     .GetCaptureDevices()
                     .Where(x => x.State == DeviceState.Active)
                     .Select(
-                    x => new MenuItem((x == microphone ? "✓ " : "  ") + x.InterfaceName,
+                    x => new ToolStripMenuItem((x == microphone ? "✓ " : "  ") + x.InterfaceName, default,
                         (o, s) =>
                         {
                             ChangeMicrophone(x);
@@ -268,18 +269,16 @@ namespace ControlMic
                     ThreadedBeep(onBeep.Freq, onBeep.Duration);
                 notifyIcon.Text = "MuteMic - Unmuted";
             }
-            Task t = new Task(() =>
-            {
-                if (notificationBallForm.Enabled)
-                    notificationBallForm.SetVisibility(!mic.IsMuted);
-            });
-            t.Start();
+
+            if (notificationBallForm.Enabled)
+                notificationBallForm.SetVisibility(!mic.IsMuted);
+
 
         }
 
         private void ThreadedBeep(int freq, int duration)
         {
-            Task t = new Task(() => Beep(freq, duration));
+            var t = new Task(() => Beep(freq, duration));
             t.Start();
         }
 
@@ -292,7 +291,7 @@ namespace ControlMic
         private void SetupShortcut(object sender = null, EventArgs e = null)
         {
             var form = new Form();
-            var hotkeyControl = new TextBox()
+            var hotkeyControl = new System.Windows.Forms.TextBox()
             {
                 Size = new Size(200, 20),
                 Top = 0,
@@ -310,14 +309,14 @@ namespace ControlMic
                 even.SuppressKeyPress = true;
             };
 
-            var save = new Button
+            var save = new System.Windows.Forms.Button
             {
                 Size = new Size(99, 20),
                 Text = "SAVE",
                 Top = 25,
                 Left = 0
             };
-            var close = new Button
+            var close = new System.Windows.Forms.Button
             {
                 Size = new Size(99, 20),
                 Text = "CLOSE",
@@ -373,12 +372,12 @@ namespace ControlMic
 
         private void Register(ModifierKeys modKeys, Key key, bool loading = false)
         {
-            if (currentHotkey != null)
-                manager.Unregister(currentHotkey);
+            //if (currentHotkey != null)
+            //    manager.Unregister(currentHotkey);
 
-            currentHotkey = new HotKey(key, modKeys);
-            manager.Register(currentHotkey);
-            manager.KeyPressed += Manager_KeyPressed;
+            //currentHotkey = new HotKey(key, modKeys);
+            //manager.Register(currentHotkey);
+            //manager.KeyPressed += Manager_KeyPressed;
 
             if (!loading)
                 Save();
@@ -386,7 +385,7 @@ namespace ControlMic
 
         private void Manager_KeyPressed(object sender, KeyPressedEventArgs e) => ToggleMute();
 
-        internal void ToggleMute(object sender = null, EventArgs e = null) => microphone?.ToggleMute();
+        internal void ToggleMute(object sender = null, EventArgs e = null) => microphone?.ToggleMuteAsync();
 
         private void Save()
         {
@@ -394,8 +393,8 @@ namespace ControlMic
             {
                 w.Write(microphone.Id.ToString());
                 w.Write(beepEnabled);
-                w.Write((int)currentHotkey.Modifiers);
-                w.Write((int)currentHotkey.Key);
+                w.Write((int)0);// currentHotkey.Modifiers);
+                w.Write((int)0);//currentHotkey.Key);
                 w.Write(onBeep.Freq);
                 w.Write(onBeep.Duration);
                 w.Write(offBeep.Freq);
@@ -421,9 +420,8 @@ namespace ControlMic
             notifyIcon = null;
             trayMenu = null;
             currentSubscription.Dispose();
-            microphone.Dispose();
             coreAudioController.Dispose();
-            manager.Dispose();
+            //manager.Dispose();
             mutedIcon.Dispose();
             unmutedIcon.Dispose();
 
@@ -437,7 +435,7 @@ namespace ControlMic
 
     }
 
-    struct BeepConfig
+    internal struct BeepConfig
     {
         public int Freq { get; set; }
         public int Duration { get; set; }

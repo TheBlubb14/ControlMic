@@ -18,6 +18,7 @@ namespace MuteUnmuteMic
             {
                 writer.WriteLine("ToggleMic");
             }
+            client.Dispose();
         }
     }
 }
