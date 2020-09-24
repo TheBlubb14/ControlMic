@@ -28,8 +28,8 @@ namespace ControlMic
         private readonly Icon mutedIcon;
         private readonly Icon unmutedIcon;
 
-        //private HotKey currentHotkey;
-        //private readonly HotKeyManager manager;
+        private HotKey currentHotkey;
+        private readonly HotKeyManager manager;
 
         private ToolStripMenuItem beepNotification;
 
@@ -44,7 +44,7 @@ namespace ControlMic
         public TrayApplication()
         {
             coreAudioController = new CoreAudioController();
-            //manager = new HotKeyManager();
+            manager = new HotKeyManager();
 
             if (File.Exists("save.mm"))
             {
@@ -372,12 +372,12 @@ namespace ControlMic
 
         private void Register(ModifierKeys modKeys, Key key, bool loading = false)
         {
-            //if (currentHotkey != null)
-            //    manager.Unregister(currentHotkey);
+            if (currentHotkey != null)
+                manager.Unregister(currentHotkey);
 
-            //currentHotkey = new HotKey(key, modKeys);
-            //manager.Register(currentHotkey);
-            //manager.KeyPressed += Manager_KeyPressed;
+            currentHotkey = new HotKey(key, modKeys);
+            manager.Register(currentHotkey);
+            manager.KeyPressed += Manager_KeyPressed;
 
             if (!loading)
                 Save();
@@ -393,8 +393,8 @@ namespace ControlMic
             {
                 w.Write(microphone.Id.ToString());
                 w.Write(beepEnabled);
-                w.Write((int)0);// currentHotkey.Modifiers);
-                w.Write((int)0);//currentHotkey.Key);
+                w.Write((int)currentHotkey.Modifiers);
+                w.Write((int)currentHotkey.Key);
                 w.Write(onBeep.Freq);
                 w.Write(onBeep.Duration);
                 w.Write(offBeep.Freq);
