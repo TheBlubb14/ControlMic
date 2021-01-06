@@ -5,14 +5,13 @@ using System.IO.Pipes;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
-using System.Windows.Controls;
 using System.Windows.Forms;
 using System.Windows.Input;
 
 using AudioSwitcher.AudioApi;
 using AudioSwitcher.AudioApi.CoreAudio;
 using AudioSwitcher.AudioApi.Observables;
-
+using ControlMic.Volume;
 using GlobalHotKey;
 
 namespace ControlMic
@@ -39,6 +38,7 @@ namespace ControlMic
         private Task pipeTask;
 
         private NotificationBallForm notificationBallForm;
+        private VolumeSettings volumeSettings;
         private IDisposable currentSubscription;
 
         public TrayApplication()
@@ -126,6 +126,7 @@ namespace ControlMic
             trayMenu.Items.Add(new ToolStripMenuItem());
             trayMenu.Items.Add(new ToolStripMenuItem("Setup Shortcut", default, SetupShortcut));
             trayMenu.Items.Add(new ToolStripMenuItem("Notifications", default, NotificationMenuItems()));
+            trayMenu.Items.Add(new ToolStripMenuItem("Volume Settings", default, OpenVolumeSettings));
             trayMenu.Items.Add(new ToolStripMenuItem("About", default, AboutDialog));
             trayMenu.Items.Add(new ToolStripMenuItem("Exit", default, Exit));
 
@@ -163,6 +164,8 @@ namespace ControlMic
             ChangeMicrophone(microphone);
             StartPipe();
 
+            volumeSettings = new(coreAudioController);
+            volumeSettings.Initialize();
         }
 
         public void StartPipe()
@@ -383,6 +386,11 @@ namespace ControlMic
                 Save();
         }
 
+        private void OpenVolumeSettings(object sender = null, EventArgs e = null)
+        {
+            volumeSettings.Show();
+        }
+
         private void Manager_KeyPressed(object sender, KeyPressedEventArgs e) => ToggleMute();
 
         internal void ToggleMute(object sender = null, EventArgs e = null) => microphone?.ToggleMuteAsync();
@@ -417,6 +425,7 @@ namespace ControlMic
             notifyIcon.Visible = false;
             notifyIcon.Dispose();
             trayMenu.Dispose();
+            volumeSettings.Dispose();
             notifyIcon = null;
             trayMenu = null;
             currentSubscription.Dispose();
