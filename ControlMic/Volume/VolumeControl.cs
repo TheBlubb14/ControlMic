@@ -20,6 +20,7 @@ namespace ControlMic.Volume
 
         private readonly IAudioSession session;
         private IDisposable volumeChanged;
+        private bool suppressTrackbarEvent;
 
         public VolumeControl()
         {
@@ -76,7 +77,9 @@ namespace ControlMic.Volume
                 else
                 {
                     // Update UI
+                    suppressTrackbarEvent = true;
                     trackBarVolume.Value = v;
+                    suppressTrackbarEvent = false;
                 }
             }
 
@@ -85,6 +88,9 @@ namespace ControlMic.Volume
 
         private async void trackBarVolume_ValueChanged(object sender, EventArgs e)
         {
+            if (suppressTrackbarEvent)
+                return;
+
             if ((int)session.Volume != Volume)
                 await session.SetVolumeAsync(Volume);
         }
