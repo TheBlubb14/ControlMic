@@ -2,5 +2,5 @@
 
 namespace ControlMic.Volume
 {
-    public record AudioSetting(string Id, int Volume, bool IsLocked);
+    public record AudioSetting(string Id, double Volume, bool IsLocked);
 }

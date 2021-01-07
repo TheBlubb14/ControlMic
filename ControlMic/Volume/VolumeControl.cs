@@ -12,7 +12,25 @@ namespace ControlMic.Volume
 {
     public partial class VolumeControl : UserControl
     {
-        public int Volume => trackBarVolume.Value;
+        public double Volume
+        {
+            get => volume;
+            set
+            {
+                if (volume == value)
+                    return;
+
+                suppressChangedEvent = true;
+                trackBarVolume.Value = (int)value;
+                numericUpDownVolume.Value = (int)value;
+                volume = value;
+
+                if (session.Volume != Volume)
+                    new Action(async () => await session.SetVolumeAsync(Volume)).Invoke();
+
+                suppressChangedEvent = false;
+            }
+        }
 
         public bool Locked { get; private set; }
 
@@ -20,54 +38,51 @@ namespace ControlMic.Volume
 
         private readonly IAudioSession session;
         private IDisposable volumeChanged;
-        private bool suppressTrackbarEvent;
+        private bool suppressChangedEvent;
+        private double volume;
 
         public VolumeControl()
         {
             InitializeComponent();
         }
 
-        public VolumeControl(IAudioSession session, int? volume = null, bool? locked = null) : this()
+        public VolumeControl(IAudioSession session, double? volume = null, bool? locked = null) : this()
         {
             this.session = session;
             Initialize(volume, locked);
         }
 
-        private async void Initialize(int? volume = null, bool? locked = null)
+        private async void Initialize(double? volume = null, bool? locked = null)
         {
             ShowIcon();
 
-            int v;
+            double v;
 
             if (locked == true)
             {
                 Locked = true;
-                UpdateLabel();
+                checkBoxLocked.Checked = true;
 
                 // Set volume to provided value or the current
-                v = volume ?? (int)await session.GetVolumeAsync();
+                v = volume ?? await session.GetVolumeAsync();
             }
             else
             {
-                v = (int)await session.GetVolumeAsync();
+                v = await session.GetVolumeAsync();
             }
 
             volumeChanged = session.VolumeChanged.Subscribe(VolumeChanged);
 
             await UiSynchronization.SwitchToUiThread();
-
-            trackBarVolume.Value = v;
-            UpdateLabel();
+            Volume = v;
         }
 
         private async void VolumeChanged(SessionVolumeChangedArgs e)
         {
             await UiSynchronization.SwitchToUiThread();
 
-            var v = (int)e.Volume;
-
             // Has changed?
-            if (v != Volume)
+            if (e.Volume != Volume)
             {
                 if (Locked)
                 {
@@ -76,23 +91,17 @@ namespace ControlMic.Volume
                 }
                 else
                 {
-                    // Update UI
-                    suppressTrackbarEvent = true;
-                    trackBarVolume.Value = v;
-                    suppressTrackbarEvent = false;
+                    Volume = e.Volume;
                 }
             }
-
-            UpdateLabel();
         }
 
-        private async void trackBarVolume_ValueChanged(object sender, EventArgs e)
+        private void trackBarVolume_ValueChanged(object sender, EventArgs e)
         {
-            if (suppressTrackbarEvent)
+            if (suppressChangedEvent)
                 return;
 
-            if ((int)session.Volume != Volume)
-                await session.SetVolumeAsync(Volume);
+            Volume = trackBarVolume.Value;
         }
 
         private void ShowIcon()
@@ -119,15 +128,17 @@ namespace ControlMic.Volume
             }
         }
 
-        private void labelVolume_Click(object sender, System.EventArgs e)
+        private void checkBoxLocked_CheckedChanged(object sender, EventArgs e)
         {
-            Locked = !Locked;
-            UpdateLabel();
+            Locked = checkBoxLocked.Checked;
         }
 
-        private void UpdateLabel()
+        private void numericUpDownVolume_ValueChanged(object sender, EventArgs e)
         {
-            labelVolume.Text = $"{Volume}{(Locked ? " 🔒" : "")}";
+            if (suppressChangedEvent)
+                return;
+
+            Volume = (double)numericUpDownVolume.Value;
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
