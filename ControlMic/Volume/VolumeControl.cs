@@ -6,30 +6,29 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace ControlMic.Volume
 {
     public partial class VolumeControl : UserControl
     {
-        public double Volume
+        public double Volume => volume;
+
+        public async Task SetVolume(double value)
         {
-            get => volume;
-            set
-            {
-                if (volume == value)
-                    return;
+            if (volume == value)
+                return;
 
-                suppressChangedEvent = true;
-                trackBarVolume.Value = (int)value;
-                numericUpDownVolume.Value = (int)value;
-                volume = value;
+            suppressChangedEvent = true;
+            trackBarVolume.Value = (int)value;
+            numericUpDownVolume.Value = (int)value;
+            volume = value;
 
-                if (session.Volume != Volume)
-                    new Action(async () => await session.SetVolumeAsync(Volume)).Invoke();
+            if (session.Volume != Volume)
+                await session.SetVolumeAsync(Volume);
 
-                suppressChangedEvent = false;
-            }
+            suppressChangedEvent = false;
         }
 
         public bool Locked { get; private set; }
@@ -74,7 +73,7 @@ namespace ControlMic.Volume
             volumeChanged = session.VolumeChanged.Subscribe(VolumeChanged);
 
             await UiSynchronization.SwitchToUiThread();
-            Volume = v;
+            SetVolume(v);
         }
 
         private async void VolumeChanged(SessionVolumeChangedArgs e)
@@ -91,7 +90,7 @@ namespace ControlMic.Volume
                 }
                 else
                 {
-                    Volume = e.Volume;
+                    SetVolume(e.Volume);
                 }
             }
         }
@@ -101,7 +100,7 @@ namespace ControlMic.Volume
             if (suppressChangedEvent)
                 return;
 
-            Volume = trackBarVolume.Value;
+            SetVolume(trackBarVolume.Value);
         }
 
         private void ShowIcon()
@@ -138,7 +137,7 @@ namespace ControlMic.Volume
             if (suppressChangedEvent)
                 return;
 
-            Volume = (double)numericUpDownVolume.Value;
+            SetVolume((double)numericUpDownVolume.Value);
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
