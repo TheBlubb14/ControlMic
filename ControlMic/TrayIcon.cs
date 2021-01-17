@@ -38,7 +38,8 @@ namespace ControlMic
         private Task pipeTask;
 
         private NotificationBallForm notificationBallForm;
-        private VolumeSettings volumeSettings;
+        private VolumeSettings volumePlaybackSettings;
+        private VolumeSettings volumeCaptureSettings;
         private IDisposable currentSubscription;
 
         public TrayApplication()
@@ -126,7 +127,8 @@ namespace ControlMic
             trayMenu.Items.Add(new ToolStripMenuItem());
             trayMenu.Items.Add(new ToolStripMenuItem("Setup Shortcut", default, SetupShortcut));
             trayMenu.Items.Add(new ToolStripMenuItem("Notifications", default, NotificationMenuItems()));
-            trayMenu.Items.Add(new ToolStripMenuItem("Volume Settings", default, OpenVolumeSettings));
+            trayMenu.Items.Add(new ToolStripMenuItem("Playback Settings", default, OpenVolumePlaybackSettings));
+            trayMenu.Items.Add(new ToolStripMenuItem("Capture Settings", default, OpenVolumeCaptureSettings));
             trayMenu.Items.Add(new ToolStripMenuItem("About", default, AboutDialog));
             trayMenu.Items.Add(new ToolStripMenuItem("Exit", default, Exit));
 
@@ -164,8 +166,11 @@ namespace ControlMic
             ChangeMicrophone(microphone);
             StartPipe();
 
-            volumeSettings = new(coreAudioController);
-            volumeSettings.Initialize();
+            volumePlaybackSettings = new(coreAudioController, DeviceType.Playback);
+            volumePlaybackSettings.Initialize();
+
+            volumeCaptureSettings = new(coreAudioController, DeviceType.Capture);
+            volumeCaptureSettings.Initialize();
         }
 
         public void StartPipe()
@@ -275,8 +280,6 @@ namespace ControlMic
 
             if (notificationBallForm.Enabled)
                 notificationBallForm.SetVisibility(!mic.IsMuted);
-
-
         }
 
         private void ThreadedBeep(int freq, int duration)
@@ -386,9 +389,14 @@ namespace ControlMic
                 Save();
         }
 
-        private void OpenVolumeSettings(object sender = null, EventArgs e = null)
+        private void OpenVolumePlaybackSettings(object sender = null, EventArgs e = null)
         {
-            volumeSettings.Show();
+            volumePlaybackSettings.Show();
+        }
+
+        private void OpenVolumeCaptureSettings(object sender = null, EventArgs e = null)
+        {
+            volumeCaptureSettings.Show();
         }
 
         private void Manager_KeyPressed(object sender, KeyPressedEventArgs e) => ToggleMute();
@@ -425,7 +433,8 @@ namespace ControlMic
             notifyIcon.Visible = false;
             notifyIcon.Dispose();
             trayMenu.Dispose();
-            volumeSettings.Dispose();
+            volumePlaybackSettings.Dispose();
+            volumeCaptureSettings.Dispose();
             notifyIcon = null;
             trayMenu = null;
             currentSubscription.Dispose();
