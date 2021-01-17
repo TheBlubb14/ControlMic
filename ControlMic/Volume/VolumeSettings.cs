@@ -1,4 +1,5 @@
-﻿using AudioSwitcher.AudioApi.CoreAudio;
+﻿using AudioSwitcher.AudioApi;
+using AudioSwitcher.AudioApi.CoreAudio;
 using AudioSwitcher.AudioApi.Session;
 using ControlMic.UI;
 using System;
@@ -14,9 +15,12 @@ namespace ControlMic.Volume
 {
     public partial class VolumeSettings : Form
     {
-        private const string SETTINGS = "audiosettings.json";
+        private const string PLAYBACK_SETTINGS = "audiosettings.json";
+        private const string CAPTURE_SETTINGS = "capturesettings.json";
         private readonly CoreAudioController coreAudioController;
         private List<AudioSetting> settings = new();
+        private readonly DeviceType deviceType;
+        private readonly string settingsName;
 
         public VolumeSettings()
         {
@@ -24,31 +28,50 @@ namespace ControlMic.Volume
             InitializeComponent();
         }
 
-        public VolumeSettings(CoreAudioController coreAudioController) : this()
+        public VolumeSettings(CoreAudioController coreAudioController, DeviceType deviceType) : this()
         {
+            this.deviceType = deviceType;
             this.coreAudioController = coreAudioController;
+
+            settingsName = deviceType == DeviceType.Capture ? CAPTURE_SETTINGS : PLAYBACK_SETTINGS;
+
+            if (File.Exists(settingsName))
+                settings = JsonSerializer.Deserialize<List<AudioSetting>>(File.ReadAllText(settingsName));
         }
 
         public async void Initialize()
         {
-            if (File.Exists(SETTINGS))
-                settings = JsonSerializer.Deserialize<List<AudioSetting>>(File.ReadAllText(SETTINGS));
-
             await UiSynchronization.SwitchToUiThread();
 
             ShowControls();
         }
 
-        public void ShowControls()
+        private void ShowControls()
         {
-            flowLayoutPanel.Controls.AddRange(
-                coreAudioController.DefaultPlaybackDevice.GetCapability<IAudioSessionController>()
-                .Select(x =>
-                {
-                    var setting = settings.Find(y => x.Id == y.Id);
+            if (deviceType == DeviceType.Capture)
+            {
+                flowLayoutPanel.Controls.AddRange(
+                    coreAudioController.GetCaptureDevices(DeviceState.Active)
+                    .Select(x =>
+                    {
+                        var setting = settings.Find(y => x.Id.ToString() == y.Id);
 
-                    return new VolumeControl(x, setting?.Volume, setting?.IsLocked);
-                }).ToArray());
+                        return new VolumeControl(x, setting?.Volume, setting?.IsLocked);
+                    })
+                    .ToArray());
+            }
+            else
+            {
+                flowLayoutPanel.Controls.AddRange(
+                    coreAudioController.DefaultPlaybackDevice
+                    .GetCapability<IAudioSessionController>()
+                    .Select(x =>
+                    {
+                        var setting = settings.Find(y => x.Id == y.Id);
+
+                        return new VolumeControl(x, setting?.Volume, setting?.IsLocked);
+                    }).ToArray());
+            }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
@@ -76,7 +99,7 @@ namespace ControlMic.Volume
                 settings.Add(new(item.Id, item.Volume, item.Locked));
             }
 
-            File.WriteAllText(SETTINGS, JsonSerializer.Serialize(settings));
+            File.WriteAllText(settingsName, JsonSerializer.Serialize(settings));
 
             Hide();
         }
